@@ -1,0 +1,647 @@
+---
+title: "FEISTY method figures"
+format: html
+editor: visual
+date: today
+---
+
+## Install FEISTY:
+
+Download and install FEISTY package from GitHub. Devtools is required:
+
+```{r}
+#| warning: FALSE
+if (!requireNamespace("devtools", quietly = TRUE)) {
+  install.packages("devtools")
+}
+
+if (!requireNamespace("FEISTY", quietly = TRUE)) {
+devtools::install_github("https://github.com/Kenhasteandersen/FEISTY/tree/R-Package")
+}
+```
+
+## Prepare environment:
+
+Clear environment:
+
+```{r}
+rm(list = ls())
+```
+
+Load packages:
+
+```{r}
+#| output: false
+library(tidyverse)
+library(FEISTY)
+library(mgcv)
+library(patchwork)
+library(png)
+```
+
+## Create figures:
+
+### Figure 2:
+
+### Figure 3:
+
+Load data:
+
+```{r}
+load(file = "data/data_cobalt.Rdata")
+```
+
+Load functional group shapes:
+
+```{r}
+clamb <- readPNG("shapes/Benthic_invertebrate.png")
+large_copepod <- readPNG("shapes/Large_MesoZoo.png")
+small_copepod <- readPNG("shapes/Small_MesoZoo.png")
+herring <- readPNG("shapes/Small_Pel_herring.png")
+cod <- readPNG("shapes/Demersal.png")
+tuna <- readPNG("shapes/Large_Pelagic_Tuna.png")
+mictophid <- readPNG("shapes/Mesopelagic.png")
+lanternfish <- readPNG("shapes/Midwater_predator.png")
+```
+
+Create functions:
+
+```{r}
+# Shelf simulations:
+shelf_sim <- function(data) {
+  out <- data.frame()
+  sims <- list()
+  
+  for(i in 1:nrow(data)) {
+    
+    id <- data$id
+    
+    my_setup <- setupVertical2(szprod = data[i, 4], lzprod = data[i, 5], # Pelagic productivities
+                               bprodin = df[i, 3], # Benthic production
+                               nStages = 9, # No. of size groups
+                               depth = as.numeric(data[i, 2]), # Bottom depth
+                               photic = 150, # Photic zone depth
+                               mesopelagic = 250) # mesopelagic depth
+    
+    
+    # Run FEISTY:
+    sim <- simulateFEISTY(bCust    = F,
+                          p      = my_setup, 
+                          tEnd   = 200,
+                          USEdll = TRUE) 
+    
+    
+    
+    # Take average biomass of the last 80 years:
+    totBiomass <- sim$totBiomass %>%
+      as.data.frame() %>%
+      tail(80) %>%
+      summarise(across(everything(), mean)) %>%
+      rename(smallPel = totBiomass.smallPel,
+             mesoPel = totBiomass.mesoPel,
+             largePel = totBiomass.largePel,
+             bathyPel = totBiomass.bathyPel,
+             demersals = totBiomass.demersals) %>%
+      t() %>%
+      as.data.frame() %>%
+      rename(totBiomass = V1) %>%
+      rownames_to_column(var = "funGroup") %>%
+      mutate(id = id[i])
+
+    out <- rbind(out, totBiomass)
+    sims[[i]] <- sim
+    
+  }
+  
+  out <- out %>%
+    mutate(totBiomass = case_when(totBiomass == 0 ~ NA,
+                                  T ~ totBiomass))
+  
+  return(list(sims = sims,
+              Biomass = out))
+}
+
+# Edit plot network function:
+plotNetwork2 <- function(sim) {
+  p=sim$p
+  u=sim$u
+  # Number of groups and biomass:
+  ngroup <- p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])] #ressources (4) + fish 
+  biomass <- u# sim[,2:(p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])]+1)] #ressources + poissons car se mangent entre eux (+1 car première colonne = temps)
+  
+  #Average of the biomass : 
+  Bi <- colMeans(biomass[round(0.6 * nrow(biomass), digits = 0):nrow(biomass),]) # mean value of the last 40% time 
+  
+  if (p$setup == "setupBasic"){
+    Av_depth <- c(-1,-1,-4,-4,0,0,-2,-2,-2,-3,-3,-3) # Vertical position
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  if (p$setup == "setupBasic2"){
+    Av_depth <- c(-1,-1,-4,-4,rep(0, length(p$ix[[1]])),rep(-2, length(p$ix[[2]])),rep(-3, length(p$ix[[3]])))
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  
+  if (p$setup == "setupVertical" | p$setup == "setupVertical2"){
+    
+    #Calculate average depth day/night
+    Av_depth_day <- 1 : p$nStages
+    Av_depth_night <- 1 : p$nStages
+    for (i in 1:p$nStages) {
+      Av_depth_day[i] <- which.max(p$depthDay[ ,i])
+      Av_depth_night[i] <- which.max(p$depthNight[ ,i]) 
+    }
+    # this calculation takes the index of the matrix p$depthDay which actually represents the depth and the value corresponding to the index is the probability of finding x fish at this depth
+    Av_depth <- -(Av_depth_day + Av_depth_night) / 2
+    
+    
+    # Offset a bit for visualization:
+    Av_depth[p$ix[[1]][1]:p$ix[[1]][length(p$ix[[1]])]] <- Av_depth[p$ix[[1]][1]:p$ix[[1]][length(p$ix[[1]])]] + 0.1 * p$bottom
+    Av_depth[p$ix[[3]][1]:p$ix[[3]][length(p$ix[[3]])]] <- Av_depth[p$ix[[3]][1]:p$ix[[3]][length(p$ix[[3]])]] - 0.1 * p$bottom
+    Av_depth[p$ix[[4]][1]:p$ix[[4]][length(p$ix[[4]])]] <- Av_depth[p$ix[[4]][1]:p$ix[[4]][length(p$ix[[4]])]] - 0.1 * p$bottom
+    Av_depth[p$ix[[2]][1]:p$ix[[2]][length(p$ix[[2]])]] <- Av_depth[p$ix[[2]][1]:p$ix[[2]][length(p$ix[[2]])]] - 0.2 * p$bottom
+    
+    # Set color palette 
+    p$SpId <- c('smallPel','mesoPel','largePel', 'bathyPel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])),
+              rep(p$SpId[4], length(p$ix[[4]])),
+              rep(p$SpId[5], length(p$ix[[5]])))
+    
+    # Specify depth axis text:
+    yaxis <- c("Surface   ", "     Bottom")
+    
+  }
+  
+  # Marker size depends on biomass: 
+  # Using real biomass yields bubbles with too many orders of magnitude difference.
+  # Thus we apply a cubic square:
+  Msize <- Bi / colMeans(example_sims[[1]]$u[round(0.6 * nrow(u), digits = 0):nrow(u), ])[1]
+  Msize[Msize == 0] <- NA
+  Msize <- Msize^(1/3)
+  Max_size = max(Msize, na.rm = T)
+  
+  # Create line width: 
+  Mat <- Bi
+  Theta <- t(t(p$theta) * Bi) * Mat
+  Theta <- c(Theta) 
+  threshold <- 0.05 # min(tail(sort(Theta), 100)) # Alternatively, use 100 strongest relations regardless of absolute value of the threshold
+  indx <- which(Theta >= threshold) # takes the x highest values of theta
+  
+  
+  # Set values of each coordinate and put them together:
+  coord_1 <- data.frame(index = 1:p$nStages^2,
+                        mc = rep(p$mc[1:p$nStages], p$nStages), 
+                        depth = rep(Av_depth[1:p$nStages], p$nStages), 
+                        SpId = rep(SpId, p$nStages),
+                        Msize = rep(Msize, p$nStages), 
+                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
+                        Alpha = (Theta/max(Theta))^(1/3))
+  
+  coord_2 <- data.frame(index = 1:p$nStages^2, # Notice that here repetition ys grouped by "each" to change order
+                        mc = rep(p$mc[1:p$nStages], each = p$nStages), 
+                        depth = rep(Av_depth[1:p$nStages], each = p$nStages), 
+                        SpId = rep(SpId, each = p$nStages),
+                        Msize = rep(Msize, each = p$nStages),
+                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
+                        Alpha = (Theta/max(Theta))^(1/3))
+  
+  df <- rbind(coord_1, coord_2)
+  
+  df <- df %>% 
+    arrange(desc(Msize))
+  
+  df2 <- df %>% filter(index %in% indx) %>%
+    arrange(desc(Msize))
+  
+  if (length(p$ix)==3){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 20^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) +
+      labs(x ="Mass (g)", y = "", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.x = element_blank(),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(),
+            axis.ticks.x = element_blank(),
+            legend.text = element_text(size = 8))
+  }
+  
+  if (length(p$ix)==5){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) + 
+      labs(x ="Mass (g)", y = "Depth (m)", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.x = element_blank(),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(), 
+            axis.ticks.x = element_blank(),
+            legend.text = element_text(size = 8))
+    
+  }
+
+  return(p)
+}
+
+# Make a network plot with x_axis:
+plotNetwork3 <- function(sim) {
+  p=sim$p
+  u=sim$u
+  # Number of groups and biomass:
+  ngroup <- p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])] #ressources (4) + fish 
+  biomass <- u# sim[,2:(p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])]+1)] #ressources + poissons car se mangent entre eux (+1 car première colonne = temps)
+  
+  #Average of the biomass : 
+  Bi <- colMeans(biomass[round(0.6 * nrow(biomass), digits = 0):nrow(biomass),]) # mean value of the last 40% time 
+  
+  if (p$setup == "setupBasic"){
+    Av_depth <- c(-1,-1,-4,-4,0,0,-2,-2,-2,-3,-3,-3) # Vertical position
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  if (p$setup == "setupBasic2"){
+    Av_depth <- c(-1,-1,-4,-4,rep(0, length(p$ix[[1]])),rep(-2, length(p$ix[[2]])),rep(-3, length(p$ix[[3]])))
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  } 
+  
+  if (p$setup == "setupVertical" | p$setup == "setupVertical2"){
+    
+    #Calculate average depth day/night
+    
+    Av_depth_day <- 1 : p$nStages
+    Av_depth_night <- 1 : p$nStages
+    for (i in 1:p$nStages) {
+      Av_depth_day[i] <- which.max(p$depthDay[ ,i])
+      Av_depth_night[i] <- which.max(p$depthNight[ ,i]) 
+      
+    }
+    #ce calcul prend l'indice de la matrice p$depthDay qui représente en réalité la profondeur et la valeur correspondant à l'indice est la probabilité de trouver x poisson à cette profondeur
+    Av_depth <- -(Av_depth_day + Av_depth_night) / 2
+    
+    
+    # Offset a bit for visualization:
+    Av_depth[p$ix[[1]][1]:p$ix[[1]][length(p$ix[[1]])]] <- Av_depth[p$ix[[1]][1]:p$ix[[1]][length(p$ix[[1]])]] + 0.1 * p$bottom
+    Av_depth[p$ix[[3]][1]:p$ix[[3]][length(p$ix[[3]])]] <- Av_depth[p$ix[[3]][1]:p$ix[[3]][length(p$ix[[3]])]] - 0.1 * p$bottom
+    Av_depth[p$ix[[4]][1]:p$ix[[4]][length(p$ix[[4]])]] <- Av_depth[p$ix[[4]][1]:p$ix[[4]][length(p$ix[[4]])]] - 0.1 * p$bottom
+    Av_depth[p$ix[[2]][1]:p$ix[[2]][length(p$ix[[2]])]] <- Av_depth[p$ix[[2]][1]:p$ix[[2]][length(p$ix[[2]])]] - 0.2 * p$bottom
+    
+    # Set color palette: 
+    p$SpId <- c('smallPel','mesoPel','largePel', 'bathyPel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])),
+              rep(p$SpId[4], length(p$ix[[4]])),
+              rep(p$SpId[5], length(p$ix[[5]])))
+    
+    # Specify depth axis text:
+    yaxis <- c("Surface   ", "     Bottom")
+    
+  }
+  
+  # Marker size depends on biomass: 
+  # Using real biomass yields bubbles with too many orders of magnitude difference.
+  # Thus we apply a cubic square:
+  Msize <- Bi / colMeans(example_sims[[1]]$u[round(0.6 * nrow(u), digits = 0):nrow(u), ])[1]
+  Msize[Msize == 0] <- NA
+  Msize <- Msize^(1/3)
+  Max_size = max(Msize, na.rm = T)
+  
+  # Create line width: 
+  Mat <- Bi
+  Theta <- t(t(p$theta) * Bi) * Mat
+  Theta <- c(Theta) 
+  threshold <- 0.05 # min(tail(sort(Theta), 100)) # Alternatively, use 100 strongest relations regardless of absolute value of the threshold
+  indx <- which(Theta >= threshold) # takes the x highest values of theta
+  
+  
+  # Set values of each coordinate and put them together:
+  coord_1 <- data.frame(index = 1:p$nStages^2,
+                        mc = rep(p$mc[1:p$nStages], p$nStages), 
+                        depth = rep(Av_depth[1:p$nStages], p$nStages), 
+                        SpId = rep(SpId, p$nStages),
+                        Msize = rep(Msize, p$nStages), 
+                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
+                        Alpha = (Theta/max(Theta))^(1/3))
+  
+  coord_2 <- data.frame(index = 1:p$nStages^2, # Notice that here repetition ys grouped by "each" to change order
+                        mc = rep(p$mc[1:p$nStages], each = p$nStages), 
+                        depth = rep(Av_depth[1:p$nStages], each = p$nStages), 
+                        SpId = rep(SpId, each = p$nStages),
+                        Msize = rep(Msize, each = p$nStages),
+                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
+                        Alpha = (Theta/max(Theta))^(1/3))
+  
+  df <- rbind(coord_1, coord_2)
+  
+  df <- df %>% 
+    arrange(desc(Msize))
+  
+  df2 <- df %>% filter(index %in% indx) %>%
+    arrange(desc(Msize))
+  
+  if (length(p$ix)==3){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) +
+      labs(x ="Mass (g)", y = "", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)), 
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(), 
+            legend.text = element_text(size = 8))
+  }
+  
+  if (length(p$ix)==5){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) + 
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      labs(x ="Mass (g)", y = "Depth (m)", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)), 
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(), 
+            legend.text = element_text(size = 8))
+    
+  }
+
+  return(p)
+}
+```
+
+Create depth-specific productivity based on COBALT outputs:
+
+```{r}
+# Edit COBALT data:
+data_cobalt <- data_cobalt %>%
+  filter(Temp_C > 5) %>%
+  rename(benthos = ben_prod,
+         smallZoo = mz_prod,
+         largeZoo = lz_prod) %>%
+  mutate(depth = round(depth, -1)) %>% # To get mean values for each 1-m interval
+  group_by(depth) %>%
+  summarise(benthos = mean(benthos),
+            smallZoo = mean(smallZoo),
+            largeZoo = mean(largeZoo))
+
+# Model benthos:
+m1 <- gam(benthos ~ s(depth),
+          data = data_cobalt)
+
+# Model small zooplankton:
+m2 <- gam(smallZoo ~ s(depth),
+          data = data_cobalt)
+
+# Model large zoopankton:
+m3 <- gam(largeZoo ~ s(depth),
+          data = data_cobalt)
+
+# Generate depth/productivity table:
+#First generate a sequence of 100 values:
+x <- seq(-10, 10, length.out = 100)
+
+# Apply the logistic function to the sequence
+logistic_values <- plogis(x) 
+rm(x)
+
+# Multiply by 3000 (m) and remove the first 70 m to generate the shelf:
+depth <- (logistic_values * 2930) + 70
+
+# Put depth in a new data frame:
+df <- data.frame (id = 1:length(depth), depth) 
+
+# Use models to predict benthic and zoo productivity:
+df$benthos <- predict(m1, newdata = df)
+df$smallZoo <- predict(m2, newdata = df)
+df$largeZoo <- predict(m3, newdata = df)
+
+# We want to show oligotrophic systems in open waters. Therefore, we apply a reduction factor for depths > 2000 m.
+df <- df %>%
+  mutate(factor = 1 + ((2000 - df$depth) / 1300),
+         smallZoo = case_when(depth > 2000 ~ smallZoo * factor,
+                              T ~ smallZoo),
+         largeZoo = case_when(depth > 2000 ~ largeZoo * factor,
+                              T ~ largeZoo))
+```
+
+Generate simulations:
+
+```{r}
+# Simulate shelf:
+my_sims <- shelf_sim(df)
+
+my_sims_biomass <- left_join(my_sims$Biomass, df, by = "id")
+
+my_sims_biomass <- my_sims_biomass %>%
+  mutate(depth2 = 3000 - depth)
+
+# Pic specific examples:
+examples <- c(19, 50, 90)
+```
+
+Create shelf plot:
+
+```{r}
+#| warning: FALSE
+# Upper trophic levels:
+p3a <- ggplot(data = my_sims_biomass) +
+  geom_line(aes(x = id, y = (totBiomass), color = funGroup), size = .7, alpha = .9) +
+  scale_color_manual(values = my_sims$sims[[1]]$p$my_palette[attr(my_sims$sims[[1]]$p$my_palette, "names") %in% my_sims_biomass$funGroup], 
+                         labels = my_sims$sims[[1]]$p$my_names[attr(my_sims$sims[[1]]$p$my_palette, "names") %in% my_sims_biomass$funGroup]) +
+  geom_area(aes(x = id, y = 1/1000 * depth2, alpha = 0), fill = "burlywood4", alpha = 0.2) +
+  geom_vline(xintercept = examples, alpha = .7, linetype = "dotted") +
+  annotate("text", label = c("c", "d", "e"), x = examples + 2, y = 22, size = 3) +
+  annotation_raster(herring, xmin = examples[[2]] + 10, xmax = examples[[2]] + 25, 
+                    ymin = 20, 
+                    ymax = 18, interpolate = T) +
+  annotation_raster(tuna, xmin = examples[[2]] + 8, xmax = examples[[2]] + 28,  
+                    ymin = 15, 
+                    ymax = 18, interpolate = T) +
+  annotation_raster(mictophid, xmin = examples[[2]] + 10, xmax = examples[[2]] + 25,  
+                    ymin = 13, 
+                    ymax = 15, interpolate = T) +
+  annotation_raster(lanternfish, xmin = examples[[2]] + 8, xmax = examples[[2]] + 28,  
+                    ymin = 11, 
+                    ymax = 13, interpolate = T) +
+  annotation_raster(cod, xmin = examples[[2]] + 8,  xmax = examples[[2]] + 28,  
+                    ymin = 9, 
+                    ymax = 11, interpolate = T) +
+  ylab(expression(paste("Biomass (g ", m^-2,")"))) +
+  theme_base() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "none", #c(.7, 0.65),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(colour = NA, fill = NA)) +
+  guides(color = guide_legend(ncol = 1))
+
+# Resources:
+df2 <- df %>% pivot_longer(cols = 3:5, names_to = "resource") %>%
+  rename(productivity = value)
+
+# Specify depth axis text:
+xaxis <- c("Shelf", "Slope", "Open ocean")
+
+p3b <- ggplot(data = df2) + 
+  geom_line(aes(x = id, y = productivity, color = resource), size = .7, alpha = .8) +
+  scale_color_manual(values = my_sims$sims[[1]]$p$my_palette[attr(my_sims$sims[[1]]$p$my_palette, "names") %in% df2$resource], 
+                     labels = my_sims$sims[[1]]$p$my_names[attr(my_sims$sims[[1]]$p$my_palette, "names") %in% df2$resource]) +
+  geom_vline(xintercept = examples, alpha = .7, linetype = "dotted") +
+  
+  annotation_raster(small_copepod, xmin = examples[[2]] + 18.2,  xmax = examples[[2]] + 25.2,  
+                    ymin = 76, 
+                    ymax = 92, interpolate = T) +
+  annotation_raster(large_copepod, xmin = examples[[2]] + 16,  xmax = examples[[2]] + 27,  
+                    ymin = 50, 
+                    ymax = 75, interpolate = T) +
+  annotation_raster(clamb, xmin = examples[[2]] + 17.5,  xmax = examples[[2]] + 25.5,  
+                    ymin = 24, 
+                    ymax = 46, interpolate = T) +
+  
+  scale_x_continuous(breaks = examples, labels = xaxis) +
+  ylab(expression(paste("Resources (g ", m^-2," yr)")))  +
+  theme_base() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "none", #c(.5, -.17),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(colour = NA, fill = NA)) +
+  guides(color = guide_legend(nrow = 2))
+
+```
+
+Create network plots:
+
+```{r}
+# Select example simulations:
+example_sims <- my_sims$sims[df[examples, ]$id]
+
+p3c <- plotNetwork2(example_sims[[1]])
+p3d <- plotNetwork2(example_sims[[2]])
+p3e <- plotNetwork3(example_sims[[3]])
+
+```
+
+Combine panels in a single plot:
+
+```{r}
+#| warning: FALSE
+# Layout plot:
+layout <- "
+AAC
+AAD
+BBE
+"
+
+p <- p3a + p3b + p3c + p3d + p3e + plot_layout(design = layout)  &
+  theme(plot.background = element_blank(), plot.margin = margin(0, 1, 0, 1, "mm") ) &
+  plot_annotation(tag_levels = "a") &
+  theme(plot.tag = element_text(size = 10))
+
+p
+```
+
+Export plot:
+
+```{r}
+#| warning: FALSE
+ggsave("plots/plot3.pdf", p, height = 100 , width = 160, units = "mm", scale = 1)
+```
+
+### Figure 4:
+
+### Figure 5:
+
+### Figure 6:
+
+### Figure S1:
+
+### Figure S2:
+
+### Figure S3:
