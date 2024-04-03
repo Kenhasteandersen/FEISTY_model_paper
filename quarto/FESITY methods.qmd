@@ -48,6 +48,15 @@ library(viridis)
 
 ### Figure 2:
 
+Run and plot a simple model example:
+
+```{r}
+parameters = setupVertical2(nStages = 9)
+sim = simulateFEISTY(p = parameters)
+plotSimulation(sim)
+```
+
+
 ### Figure 3:
 
 Load data:
