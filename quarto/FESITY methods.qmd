@@ -121,25 +121,90 @@ shelf_sim <- function(data) {
               Biomass = out))
 }
 
-# Edit plot network function:
+# Create feeding flux from prey to predator:
+getFeeding = function(sim) {
+  p <- sim$p
+  u <- sim$u
+  
+  # get last 40% of timeseries
+  etaTime <- 0.4 
+  ixTime  <- which(sim$t>=((1-etaTime)*sim$t[sim$nTime]))
+  
+  # Number of groups and biomass:
+  ngroup <- p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])] #resources (4) + fish 
+  biomass <- u
+  
+  #Average of the biomass : 
+  prey     <- colMeans(biomass[ixTime,]) # mean value of the last 40% time 
+  predator <- colMeans(biomass[ixTime,]) # mean value of the last 40% time 
+  
+  # estimate encounters
+  Enc <- p$V[1] * p$theta[1,] * prey 
+  for (i in 2:length(predator)){
+    Enc <- rbind(Enc, p$V[i] * p$theta[i,] * prey)
+  }
+  
+  # estimate encounters per predator
+  Encspecies = rowSums(Enc)
+  
+  # estimate the mortality generated
+  mortpr <-  p$Cmax[1] * p$V[1] * p$theta[1,] / (p$Cmax[1]+ Encspecies[1]) * predator[1]
+  for (i in 2:length(predator)){
+    mortpr <- rbind(mortpr,p$Cmax[i] * p$V[i] * p$theta[i,] / (p$Cmax[i]+ Encspecies[i]) * predator[i])
+  }
+  
+  # estimate the flux from prey to predator
+  mortpr <- ifelse(is.na(mortpr),0,mortpr)
+  flux_prey_to_pred <- t(t(mortpr)*prey)
+  rownames(flux_prey_to_pred) <- paste("pred",colnames(p$theta),sep="_")
+  colnames(flux_prey_to_pred) <- paste("prey",colnames(p$theta),sep="_")
+  return(flux_prey_to_pred)
+}
+
+# Plot network function:
 plotNetwork2 <- function(sim) {
   p=sim$p
   u=sim$u
   # Number of groups and biomass:
   ngroup <- p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])] #ressources (4) + fish 
-  biomass <- u
+  biomass <- u# sim[,2:(p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])]+1)] #ressources + poissons car se mangent entre eux (+1 car première colonne = temps)
   
-  # Average of the biomass : 
+  #Average of the biomass : 
   Bi <- colMeans(biomass[round(0.6 * nrow(biomass), digits = 0):nrow(biomass),]) # mean value of the last 40% time 
   
-     #Calculate average depth day/night
+  if (p$setup == "setupBasic"){
+    Av_depth <- c(-1,-1,-4,-4,0,0,-2,-2,-2,-3,-3,-3) # Vertical position
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  if (p$setup == "setupBasic2"){
+    Av_depth <- c(-1,-1,-4,-4,rep(0, length(p$ix[[1]])),rep(-2, length(p$ix[[2]])),rep(-3, length(p$ix[[3]])))
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  
+  if (p$setup == "setupVertical" | p$setup == "setupVertical2"){
+    
+    #Calculate average depth day/night
     Av_depth_day <- 1 : p$nStages
     Av_depth_night <- 1 : p$nStages
     for (i in 1:p$nStages) {
       Av_depth_day[i] <- which.max(p$depthDay[ ,i])
       Av_depth_night[i] <- which.max(p$depthNight[ ,i]) 
     }
-    # This calculation takes the index of the matrix p$depthDay which actually represents the depth and the value corresponding to the index is the probability of finding x fish at this depth
+    # this calculation takes the index of the matrix p$depthDay which actually represents the depth and the value corresponding to the index is the probability of finding x fish at this depth
     Av_depth <- -(Av_depth_day + Av_depth_night) / 2
     
     
@@ -161,6 +226,8 @@ plotNetwork2 <- function(sim) {
     # Specify depth axis text:
     yaxis <- c("Surface   ", "     Bottom")
     
+  }
+  
   # Marker size depends on biomass: 
   # Using real biomass yields bubbles with too many orders of magnitude difference.
   # Thus we apply a cubic square:
@@ -170,11 +237,10 @@ plotNetwork2 <- function(sim) {
   Max_size = max(Msize, na.rm = T)
   
   # Create line width: 
-  Mat <- Bi
-  Theta <- t(t(p$theta) * Bi) * Mat
-  Theta <- c(Theta) 
-  threshold <- 0.05 # min(tail(sort(Theta), 100)) # Alternatively, use 100 strongest relations regardless of absolute value of the threshold
-  indx <- which(Theta >= threshold) # takes the x highest values of theta
+  Flux <- getFeeding(sim)
+  Flux <- c(Flux) 
+  threshold <- 0.05 # min(tail(sort(Flux), 100)) 
+  indx <- which(Flux >= threshold) # takes the x highest values of theta
   
   
   # Set values of each coordinate and put them together:
@@ -183,16 +249,16 @@ plotNetwork2 <- function(sim) {
                         depth = rep(Av_depth[1:p$nStages], p$nStages), 
                         SpId = rep(SpId, p$nStages),
                         Msize = rep(Msize, p$nStages), 
-                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
-                        Alpha = (Theta/max(Theta))^(1/3))
+                        LineWdth = (Flux/max(Flux))^(1/3) / 15,
+                        Alpha = (Flux/max(Flux))^(1/3))
   
   coord_2 <- data.frame(index = 1:p$nStages^2, # Notice that here repetition ys grouped by "each" to change order
                         mc = rep(p$mc[1:p$nStages], each = p$nStages), 
                         depth = rep(Av_depth[1:p$nStages], each = p$nStages), 
                         SpId = rep(SpId, each = p$nStages),
                         Msize = rep(Msize, each = p$nStages),
-                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
-                        Alpha = (Theta/max(Theta))^(1/3))
+                        LineWdth = (Flux/max(Flux))^(1/3) / 15,
+                        Alpha = (Flux/max(Flux))^(1/3))
   
   df <- rbind(coord_1, coord_2)
   
@@ -202,12 +268,40 @@ plotNetwork2 <- function(sim) {
   df2 <- df %>% filter(index %in% indx) %>%
     arrange(desc(Msize))
   
+  if (length(p$ix)==3){
     p <- ggplot() +
       geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
       geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
       scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
                          labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
       scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 20^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) +
+      labs(x ="Mass (g)", y = "", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.x = element_blank(),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(),
+            axis.ticks.x = element_blank(),
+            legend.text = element_text(size = 8))
+  }
+  
+  if (length(p$ix)==5){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
       scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
                     labels = trans_format("log10", math_format(10^.x))) +
       scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) + 
@@ -225,6 +319,8 @@ plotNetwork2 <- function(sim) {
             axis.ticks.x = element_blank(),
             legend.text = element_text(size = 8))
     
+  }
+
   return(p)
 }
 
@@ -234,11 +330,35 @@ plotNetwork3 <- function(sim) {
   u=sim$u
   # Number of groups and biomass:
   ngroup <- p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])] #ressources (4) + fish 
-  biomass <- u
+  biomass <- u# sim[,2:(p$ix[[length(p$ix)]][length(p$ix[[length(p$ix)]])]+1)] #ressources + poissons car se mangent entre eux (+1 car première colonne = temps)
   
   #Average of the biomass : 
   Bi <- colMeans(biomass[round(0.6 * nrow(biomass), digits = 0):nrow(biomass),]) # mean value of the last 40% time 
   
+  if (p$setup == "setupBasic"){
+    Av_depth <- c(-1,-1,-4,-4,0,0,-2,-2,-2,-3,-3,-3) # Vertical position
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  }  
+  
+  if (p$setup == "setupBasic2"){
+    Av_depth <- c(-1,-1,-4,-4,rep(0, length(p$ix[[1]])),rep(-2, length(p$ix[[2]])),rep(-3, length(p$ix[[3]])))
+    
+    p$SpId <- c('smallPel','largePel', 'demersals')
+    SpId <- c("smallZoo", "largeZoo", "benthos", "largeBenthos", 
+              rep(p$SpId[1], length(p$ix[[1]])),
+              rep(p$SpId[2], length(p$ix[[2]])),
+              rep(p$SpId[3], length(p$ix[[3]])))
+    
+  } 
+  
+  if (p$setup == "setupVertical" | p$setup == "setupVertical2"){
+    
     #Calculate average depth day/night
     
     Av_depth_day <- 1 : p$nStages
@@ -248,7 +368,7 @@ plotNetwork3 <- function(sim) {
       Av_depth_night[i] <- which.max(p$depthNight[ ,i]) 
       
     }
-
+    #ce calcul prend l'indice de la matrice p$depthDay qui représente en réalité la profondeur et la valeur correspondant à l'indice est la probabilité de trouver x poisson à cette profondeur
     Av_depth <- -(Av_depth_day + Av_depth_night) / 2
     
     
@@ -269,6 +389,8 @@ plotNetwork3 <- function(sim) {
     
     # Specify depth axis text:
     yaxis <- c("Surface   ", "     Bottom")
+    
+  }
   
   # Marker size depends on biomass: 
   # Using real biomass yields bubbles with too many orders of magnitude difference.
@@ -279,11 +401,10 @@ plotNetwork3 <- function(sim) {
   Max_size = max(Msize, na.rm = T)
   
   # Create line width: 
-  Mat <- Bi
-  Theta <- t(t(p$theta) * Bi) * Mat
-  Theta <- c(Theta) 
-  threshold <- 0.05 # min(tail(sort(Theta), 100)) # Alternatively, use 100 strongest relations regardless of absolute value of the threshold
-  indx <- which(Theta >= threshold) # takes the x highest values of theta
+  Flux <- getFeeding(sim)
+  Flux <- c(Flux) 
+  threshold <- 0.05 # min(tail(sort(Flux), 100)) 
+  indx <- which(Flux >= threshold) # takes the x highest values of theta
   
   
   # Set values of each coordinate and put them together:
@@ -292,16 +413,16 @@ plotNetwork3 <- function(sim) {
                         depth = rep(Av_depth[1:p$nStages], p$nStages), 
                         SpId = rep(SpId, p$nStages),
                         Msize = rep(Msize, p$nStages), 
-                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
-                        Alpha = (Theta/max(Theta))^(1/3))
+                        LineWdth = (Flux/max(Flux))^(1/3) / 15,
+                        Alpha = (Flux/max(Flux))^(1/3))
   
   coord_2 <- data.frame(index = 1:p$nStages^2, # Notice that here repetition ys grouped by "each" to change order
                         mc = rep(p$mc[1:p$nStages], each = p$nStages), 
                         depth = rep(Av_depth[1:p$nStages], each = p$nStages), 
                         SpId = rep(SpId, each = p$nStages),
                         Msize = rep(Msize, each = p$nStages),
-                        LineWdth = (Theta/max(Theta))^(1/3) / 15,
-                        Alpha = (Theta/max(Theta))^(1/3))
+                        LineWdth = (Flux/max(Flux))^(1/3) / 15,
+                        Alpha = (Flux/max(Flux))^(1/3))
   
   df <- rbind(coord_1, coord_2)
   
@@ -311,7 +432,30 @@ plotNetwork3 <- function(sim) {
   df2 <- df %>% filter(index %in% indx) %>%
     arrange(desc(Msize))
   
-  # Make plot
+  if (length(p$ix)==3){
+    p <- ggplot() +
+      geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
+      geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
+      scale_color_manual(values = p$my_palette[attr(p$my_palette, "names") %in% df$SpId], 
+                         labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
+      scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
+      scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                    labels = trans_format("log10", math_format(10^.x))) +
+      scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) +
+      labs(x ="Mass (g)", y = "", color = "Group") +
+      theme_base() + 
+      guides(size = "none") +
+      theme(legend.position = "none",
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8),
+            axis.text.y = element_text(angle = 90, size = 8, hjust = .5, margin = margin(r = 0)), 
+            axis.title.y = element_blank(), 
+            axis.ticks.y=element_blank(), 
+            legend.text = element_text(size = 8))
+  }
+  
+  if (length(p$ix)==5){
     p <- ggplot() +
       geom_line(data = df2, aes(x = mc, y = depth, group = index, size = LineWdth, color = SpId, alpha = Alpha), show.legend = F) +
       geom_point(data = df, aes(x = mc, y = depth, color = SpId, size = Msize), stroke = 0, shape = 16) +
@@ -319,6 +463,7 @@ plotNetwork3 <- function(sim) {
                          labels = p$my_names[attr(p$my_palette, "names") %in% df$SpId]) +
       scale_y_continuous(breaks = seq(0, round(-p$bottom - 1), by = -p$bottom), labels = yaxis) + 
       scale_radius(limits = c(0, NA), range = c(0, (8 * Max_size))) +
+      # scale_size_area(max_size = 4, ) +
       scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
                     labels = trans_format("log10", math_format(10^.x))) +
       labs(x ="Mass (g)", y = "Depth (m)", color = "Group") +
@@ -332,6 +477,8 @@ plotNetwork3 <- function(sim) {
             axis.ticks.y=element_blank(), 
             legend.text = element_text(size = 8))
     
+  }
+
   return(p)
 }
 ```
