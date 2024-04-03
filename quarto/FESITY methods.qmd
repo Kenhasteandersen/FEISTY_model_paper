@@ -37,6 +37,11 @@ library(FEISTY)
 library(mgcv)
 library(patchwork)
 library(png)
+library(foreach)
+library(doParallel)
+library(rnaturalearth)
+library(sf)
+library(viridis)
 ```
 
 ## Create figures:
