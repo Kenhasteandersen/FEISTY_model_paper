@@ -33,7 +33,9 @@ Load packages:
 ```{r}
 #| output: false
 library(tidyverse)
+library(ggthemes)
 library(FEISTY)
+library(scales)
 library(mgcv)
 library(patchwork)
 library(png)
@@ -95,9 +97,8 @@ shelf_sim <- function(data) {
                                bprodin = df[i, 3], # Benthic production
                                nStages = 9, # No. of size groups
                                depth = as.numeric(data[i, 2]), # Bottom depth
-                               photic = 150, # Photic zone depth
-                               mesopelagic = 250) # mesopelagic depth
-    
+                               photic = 150) # Photic zone depth
+
     
     # Run FEISTY:
     sim <- simulateFEISTY(bCust    = F,
@@ -689,170 +690,6 @@ ggsave("plots/plot3.pdf", p, height = 100 , width = 160, units = "mm", scale = 1
 
 ### Figure 4:
 
-Stage sensitivity run:
-
-```{r}
-experiment = seq(3, 27, 3) # number of stages
-
-iFish <- c(1,2,3,4,5) # 1:smallPel  2:mesoPel 3:largePel  4:bathyPel  5:demersal
-df_m <- matrix(ncol = length(iFish) + 1,
-               nrow = length(experiment))
-
-# Stage loop
-Stages <- c()
-i <- 1
-for (test in experiment)
-{
-  param <- setupVertical2(depth = df[examples[2], "depth"],
-                          szprod = df[examples[2], "smallZoo"],
-                          lzprod = df[examples[2], "largeZoo"],
-                          bprodin = df[examples[2], "benthos"], # 121 + 2.58*df[examples[2], "benthos"], # conversion from benthic production to flux
-                          nStages = test)
-
-  sim <- simulateFEISTY(p = param, tEnd = 200, bCust = TRUE)
-  df_m[i,] <- c(apply(sim$totBiomass[121:201,], 2, mean), test)
-  
-  i <- i+1
-}
-
-# Massage into long format df
-dimnames(df_m) <- list(NULL, c(param$my_names[3 + iFish], "Stages"))
-df_stage <- pivot_longer(as.data.frame(df_m), cols = unname(param$my_names[3 + iFish]))
-```
-
-Stage sensitivity plotting:
-
-```{r}
-p4a <- ggplot(transform(df_stage,
-                      name = factor(name, levels = param$my_names))) +
-  geom_line(aes(x=Stages, y=value, color = name), linetype  = 1) +
-  geom_point(aes(x=Stages, y=value, color = name)) +
-  annotation_raster(herring, xmin = 21, xmax = 21+4, 
-                    ymin = 2.75, 
-                    ymax = 3.25, interpolate = T) +
-  annotation_raster(tuna, xmin = 21, xmax = 21+4, 
-                    ymin = 4.5, 
-                    ymax = 4, interpolate = T) +
-  annotation_raster(mictophid, xmin = 21, xmax = 21+4, 
-                    ymin = 6.25, 
-                    ymax = 6.75, interpolate = T) +
-  annotation_raster(lanternfish, xmin = 21, xmax = 21+4, 
-                    ymin = 1.75, 
-                    ymax = 2.25, interpolate = T) +
-  annotation_raster(cod, xmin = 21, xmax = 21+4, 
-                    ymin = 0.25, 
-                    ymax = 0.75, interpolate = T) +
-  scale_x_continuous(breaks = unique(df_stage$Stages),
-                     name = "Number of stages") +
-  scale_y_continuous(name = expression("Biomass (gww⋅"*m^-2* ")" )) +
-  scale_color_manual(values = c("#EE6677",  "#AA4499", "#33BBEE", "#004488", "#228833")) + # fix this to use palette
-  theme_base() +
-  theme(axis.text.x = element_text(size = 8),
-        axis.title.x = element_text(size = 8),
-        axis.text.y = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        legend.title = element_blank(),
-        legend.text = element_text(size = 8),
-        legend.position = "none", 
-        legend.background = element_rect(fill = "transparent"),
-        legend.key = element_rect(colour = NA, fill = NA)) +
-  guides(color = guide_legend(ncol = 2))
-```
-
-Setup sensitivity run:
-
-```{r}
-df$benthic_flux <- 121 + (2.58*df$benthos) # conversion from benthic production to flux
-
-# Experiment
-experiment <- seq(1, nrow(df), 1)
-
-# Initialization
-df_m <- matrix(ncol = 4 + 1,
-               nrow = length(experiment))
-
-# Stage number loop
-i <- 1
-for (test in experiment)
-{
-  param1 <- setupBasic(szprod = df$smallZoo[test],
-                       lzprod = df$largeZoo[test],
-                       bprod  = df$benthos[test],
-                       depth  = df$depth[test]) 
-  param2 <- setupBasic2(szprod = df$smallZoo[test],
-                        lzprod = df$largeZoo[test],
-                        bprod  = df$benthos[test],
-                        depth  = df$depth[test]) 
-  param3 <- setupVertical(szprod = df$smallZoo[test],
-                          lzprod = df$largeZoo[test],
-                          bprod = df$benthos[test],
-                          depth  = df$depth[test]) 
-  param4 <- setupVertical2(szprod = df$smallZoo[test],
-                           lzprod = df$largeZoo[test],
-                           bprod = df$benthos[test],
-                           depth  = df$depth[test],
-                           nStages = 9)
-
-  sim1 <- simulateFEISTY(p = param1, tEnd = 200, bCust = TRUE)
-  sim2 <- simulateFEISTY(p = param2, tEnd = 200, bCust = TRUE)
-  sim3 <- simulateFEISTY(p = param3, tEnd = 200, bCust = TRUE)
-  sim4 <- simulateFEISTY(p = param4, tEnd = 200, bCust = TRUE)
-  
-  bmass1 <- sum(apply(sim1$totBiomass[121:201,], 2, mean))
-  bmass2 <- sum(apply(sim2$totBiomass[121:201,], 2, mean))
-  bmass3 <- sum(apply(sim3$totBiomass[121:201,], 2, mean))
-  bmass4 <- sum(apply(sim4$totBiomass[121:201,], 2, mean))
-  
-  df_m[i, ] <- c(bmass1, bmass2, bmass3, bmass4, df$depth[test])
-  
-  i <- i+1
-}
-
-# Massage into long format df
-dimnames(df_m) <- list(NULL, c("Basic", "Basic2", "Vertical", "Vertical2", "Depth"))
-df_setup <- pivot_longer(as.data.frame(df_m), cols = !Depth)
-```
-
-Setup sensitivity plotting:
-
-```{r}
-p4b <- ggplot(transform(df_setup,
-                      name = factor(name, levels = c("Basic", "Basic2", "Vertical", "Vertical2")))) +
-  geom_line(aes(x=Depth, y=value, linetype = name)) +
-  scale_y_continuous(name = expression("Biomass (gww⋅"*m^-2* ")" )) +
-  scale_linetype_manual(values = c("solid", "dotted", "longdash", "dotdash")) +
-  theme_base() +
-  theme(axis.text.x = element_text(size = 8),
-        axis.title.x = element_text(size = 8),
-        axis.text.y = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        legend.title = element_blank(),
-        legend.text = element_text(size = 8),
-        legend.position=c(0.65, 0.85),
-        legend.background = element_rect(fill = "transparent"),
-        legend.key = element_rect(colour = NA, fill = NA)) +
-  guides(linetype = guide_legend(nrow = 2))
-```
-
-Combine panels into a single plot:
-
-```{r}
-#| warning: FALSE
-# Layout plot:
-layout <- "
-AB
-"
-
-p4 <- p4a + p4b + plot_layout(design = layout)  &
-  theme(plot.background = element_blank(), plot.margin = margin(0, 1, 0, 1, "mm") ) &
-  plot_annotation(tag_levels = "a") &
-  theme(plot.tag = element_text(size = 10))
-
-p4
-```
-
-### Figure 5:
-
 Load global forcing data and world shape:
 
 ```{r}
@@ -954,7 +791,172 @@ Export plot:
 
 ```{r}
 #| warning: FALSE
-ggsave("plots/plot5.pdf", p, height = 3.5 , width = 5)
+ggsave("plots/plot4.pdf", p, height = 3.5 , width = 5)
+```
+
+
+### Figure 5:
+
+Stage sensitivity run:
+
+```{r}
+experiment = seq(3, 27, 3) # number of stages
+
+iFish <- c(1,2,3,4,5) # 1:smallPel  2:mesoPel 3:largePel  4:bathyPel  5:demersal
+df_m <- matrix(ncol = length(iFish) + 1,
+               nrow = length(experiment))
+
+# Stage loop
+Stages <- c()
+i <- 1
+for (test in experiment)
+{
+  param <- setupVertical2(depth = df[examples[2], "depth"],
+                          szprod = df[examples[2], "smallZoo"],
+                          lzprod = df[examples[2], "largeZoo"],
+                          dfpho = 121 + 2.58*df[examples[2], "benthos"], # conversion from benthic production to flux
+                          nStages = test)
+
+  sim <- simulateFEISTY(p = param, tEnd = 200, bCust = TRUE)
+  df_m[i,] <- c(apply(sim$totBiomass[121:201,], 2, mean), test)
+  
+  i <- i+1
+}
+
+# Massage into long format df
+dimnames(df_m) <- list(NULL, c(param$my_names[3 + iFish], "Stages"))
+df_stage <- pivot_longer(as.data.frame(df_m), cols = unname(param$my_names[3 + iFish]))
+```
+
+Stage sensitivity plotting:
+
+```{r}
+p5a <- ggplot(transform(df_stage,
+                      name = factor(name, levels = param$my_names))) +
+  geom_line(aes(x=Stages, y=value, color = name), linetype  = 1) +
+  geom_point(aes(x=Stages, y=value, color = name)) +
+  annotation_raster(herring, xmin = 21, xmax = 21+4, 
+                    ymin = 2.75, 
+                    ymax = 3.25, interpolate = T) +
+  annotation_raster(tuna, xmin = 21, xmax = 21+4, 
+                    ymin = 4.5, 
+                    ymax = 4, interpolate = T) +
+  annotation_raster(mictophid, xmin = 21, xmax = 21+4, 
+                    ymin = 6.25, 
+                    ymax = 6.75, interpolate = T) +
+  annotation_raster(lanternfish, xmin = 21, xmax = 21+4, 
+                    ymin = 1.75, 
+                    ymax = 2.25, interpolate = T) +
+  annotation_raster(cod, xmin = 21, xmax = 21+4, 
+                    ymin = 0.25, 
+                    ymax = 0.75, interpolate = T) +
+  scale_x_continuous(breaks = unique(df_stage$Stages),
+                     name = "Number of stages") +
+  scale_y_continuous(name = expression("Biomass (gww⋅"*m^-2* ")" )) +
+  scale_color_manual(values = c("#EE6677",  "#AA4499", "#33BBEE", "#004488", "#228833")) + # fix this to use palette
+  theme_base() +
+  theme(axis.text.x = element_text(size = 8),
+        axis.title.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position = "none", 
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(colour = NA, fill = NA)) +
+  guides(color = guide_legend(ncol = 2))
+```
+
+Setup sensitivity run:
+
+```{r}
+df$benthic_flux <- 121 + (2.58*df$benthos) # conversion from benthic production to flux
+
+# Experiment
+experiment <- seq(1, nrow(df), 1)
+
+# Initialization
+df_m <- matrix(ncol = 4 + 1,
+               nrow = length(experiment))
+
+# Stage number loop
+i <- 1
+for (test in experiment)
+{
+  param1 <- setupBasic(szprod = df$smallZoo[test],
+                       lzprod = df$largeZoo[test],
+                       bprod  = df$benthos[test],
+                       depth  = df$depth[test]) 
+  param2 <- setupBasic2(szprod = df$smallZoo[test],
+                        lzprod = df$largeZoo[test],
+                        bprod  = df$benthos[test],
+                        depth  = df$depth[test]) 
+  param3 <- setupVertical(szprod = df$smallZoo[test],
+                          lzprod = df$largeZoo[test],
+                          dfpho = df$benthic_flux[test],
+                          depth  = df$depth[test]) 
+  param4 <- setupVertical2(szprod = df$smallZoo[test],
+                           lzprod = df$largeZoo[test],
+                           dfpho = df$benthic_flux[test],
+                           depth  = df$depth[test],
+                           nStages = 9)
+
+  sim1 <- simulateFEISTY(p = param1, tEnd = 200, bCust = TRUE)
+  sim2 <- simulateFEISTY(p = param2, tEnd = 200, bCust = TRUE)
+  sim3 <- simulateFEISTY(p = param3, tEnd = 200, bCust = TRUE)
+  sim4 <- simulateFEISTY(p = param4, tEnd = 200, bCust = TRUE)
+  
+  bmass1 <- sum(apply(sim1$totBiomass[121:201,], 2, mean))
+  bmass2 <- sum(apply(sim2$totBiomass[121:201,], 2, mean))
+  bmass3 <- sum(apply(sim3$totBiomass[121:201,], 2, mean))
+  bmass4 <- sum(apply(sim4$totBiomass[121:201,], 2, mean))
+  
+  df_m[i, ] <- c(bmass1, bmass2, bmass3, bmass4, df$depth[test])
+  
+  i <- i+1
+}
+
+# Massage into long format df
+dimnames(df_m) <- list(NULL, c("Basic", "Basic2", "Vertical", "Vertical2", "Depth"))
+df_setup <- pivot_longer(as.data.frame(df_m), cols = !Depth)
+```
+
+Setup sensitivity plotting:
+
+```{r}
+p5b <- ggplot(transform(df_setup,
+                      name = factor(name, levels = c("Basic", "Basic2", "Vertical", "Vertical2")))) +
+  geom_line(aes(x=Depth, y=value, linetype = name)) +
+  scale_y_continuous(name = expression("Biomass (gww⋅"*m^-2* ")" )) +
+  scale_linetype_manual(values = c("solid", "dotted", "longdash", "dotdash")) +
+  theme_base() +
+  theme(axis.text.x = element_text(size = 8),
+        axis.title.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.position=c(0.65, 0.85),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(colour = NA, fill = NA)) +
+  guides(linetype = guide_legend(nrow = 2))
+```
+
+Combine panels into a single plot:
+
+```{r}
+#| warning: FALSE
+# Layout plot:
+layout <- "
+AB
+"
+
+p5 <- p5a + p5b + plot_layout(design = layout)  &
+  theme(plot.background = element_blank(), plot.margin = margin(0, 1, 0, 1, "mm") ) &
+  plot_annotation(tag_levels = "a") &
+  theme(plot.tag = element_text(size = 10))
+
+p5
 ```
 
 ### Figure 6:
@@ -992,7 +994,7 @@ iFish <- c(1,2,3,4,5) # 1:smallPel  2:mesoPel 3:largePel  4:bathyPel  5:demersal
 param <- setupVertical2(depth = df[examples[1], "depth"],
                         szprod = df[examples[1], "smallZoo"],
                         lzprod = df[examples[1], "largeZoo"],
-                        bprodin = df[examples[1], "benthos"], # 121 + 2.58*df[examples[1], "benthos"],
+                        dfpho = 121 + 2.58*df[examples[1], "benthos"], 
                         nStages = 9)
 
 df_fishing_smallPel <- setFishing(param, 1, seq(0, 6, 0.2))
@@ -1199,7 +1201,8 @@ analyseStagebiomass = function(nStages = c(3,6,9,12,15,18,21,24,27),vertical=F) 
 
 }
 
-analyseStagebiomass()
+analyseStagebiomass(vertical = F) # Setup basic2
+analyseStagebiomass(vertical = T) # Setup vertical2
 ```
 
 ### Figure 9 and Figure 10:
