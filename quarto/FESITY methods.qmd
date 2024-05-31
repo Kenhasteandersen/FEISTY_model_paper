@@ -15,10 +15,10 @@ Download and install FEISTY package from GitHub. Devtools is required:
 if (!requireNamespace("devtools", quietly = TRUE)) {
   install.packages("devtools")
 }
-
-if (!requireNamespace("FEISTY", quietly = TRUE)) {
-devtools::install_github("https://github.com/Kenhasteandersen/FEISTY/tree/R-Package")
-}
+# Disabled for review. Please install the FEISTY package manually before run.
+# if (!requireNamespace("FEISTY", quietly = TRUE)) {
+# devtools::install_github("...url...")
+# }
 ```
 
 ## Prepare environment:
