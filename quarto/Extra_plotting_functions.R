@@ -107,7 +107,7 @@ plotNetwork2 <- function(sim, scale_bio_manual=F, scale_bio = 5) {
               rep(p$SpId[5], length(p$ix[[5]])))
     
     # Specify depth axis text:
-    yaxis <- c("Surface   ", "     Bottom")
+    yaxis <- c("Epipelagic   ", "     Bottom")
   }
   
   # Marker size depends on biomass following a cubic square transformation

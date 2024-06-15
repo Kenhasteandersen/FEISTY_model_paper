@@ -255,11 +255,11 @@ world <- ne_countries(scale = 10, returnclass = "sf")
 
 Plot the map:
 
-```{r plot4, fig.width = 3, fig.height= 3.5}
+```{r plot4, fig.width = 4, fig.height= 4.5}
 #| warning: FALSE
 ggplot(grid) + 
   geom_sf(aes(fill=log10(tot+0.01)), colour = NA) + 
-  scale_fill_viridis(name="Fish biomass g m-2    \n",
+  scale_fill_viridis(name=bquote("Fish biomass g m"^-2~"   \n"),
                      labels = c("<0.01","1","100"),breaks=c(-2,0,2))  + 
   geom_sf(data=world,col="grey",fill="grey") +
   coord_sf(crs= "+proj=moll") +
