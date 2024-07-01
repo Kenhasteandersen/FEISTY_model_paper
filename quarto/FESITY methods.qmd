@@ -259,7 +259,7 @@ Plot the map:
 #| warning: FALSE
 ggplot(grid) + 
   geom_sf(aes(fill=log10(tot+0.01)), colour = NA) + 
-  scale_fill_viridis(name=bquote("Fish biomass g m"^-2~"   \n"),
+  scale_fill_viridis(name=bquote(atop("Fish biomass g m"^-2, "")),
                      labels = c("<0.01","1","100"),breaks=c(-2,0,2))  + 
   geom_sf(data=world,col="grey",fill="grey") +
   coord_sf(crs= "+proj=moll") +
